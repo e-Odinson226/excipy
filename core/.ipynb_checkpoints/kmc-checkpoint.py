@@ -4,15 +4,19 @@ import concurrent.futures
 from functools import partial
 from core.processes import hopping_rate
 import sys
+from numba import jit
 
 
 
-class Exciton:
+class Exciton: 
     """
     Simple container for an exciton, which just knows which site it occupies.
     """
-    def __init__(self, site_index):
-        self.site = site_index
+    _counter = 0 # we also need t set uniqe id for excitons to know which exciton dyes
+    def __init__(self, site):
+        self.site = site
+        self.uid  = Exciton._counter   # persistent ID
+        Exciton._counter += 1
 
 def run_kmc(
     system=None,
@@ -57,6 +61,9 @@ def run_kmc(
         times: list of times after each event
         exciton_records: list of exciton states (which site each exciton is on)
     """
+
+    Exciton._counter = 0 # reset exciton ids
+    
     if system is None:
         sys.exit("Error: Please specify your system!")
     else:    
@@ -94,7 +101,7 @@ def run_kmc(
     
     # Lists to store info as we go
     times = [0.0]
-    exciton_records = [ [ex.site for ex in excitons] ]
+    exciton_records = [ [(ex.uid, ex.site) for ex in excitons] ]
 
     current_time = 0.0
     step_count = 0
@@ -187,33 +194,30 @@ def run_kmc(
 
         if etype == 'decay':
             # ('decay', ex_idx, rate)
-            ex_idx, rate = chosen_event[1], chosen_event[2]
+            ex_idx = chosen_event[1]
             # remove exciton
             excitons.pop(ex_idx)
             #print("decay") #for debug
 
         elif etype == 'hop':
             # ('hop', ex_idx, nb_site, rate)
-            ex_idx, nb_site, rate = chosen_event[1], chosen_event[2], chosen_event[3]
+            ex_idx, nb_site = chosen_event[1], chosen_event[2]
             excitons[ex_idx].site = nb_site
             #print("hop", chosen_event[3]/1e9) #for debug
             
         elif etype == 'annih':
-            # ('annih', ex_i, ex_j, rate)
-            ex_i, ex_j, rate = chosen_event[1], chosen_event[2], chosen_event[3]
-            # Let's define annihilation as: ex_j is removed, ex_i remains
-            # or you can keep ex_i in S1, ex_j -> removed, etc.
-            higher_idx = max(ex_i, ex_j)
-            lower_idx = min(ex_i, ex_j)
-            # remove the exciton with the higher index first, 
-            # so we don't shift the lower index
-            excitons.pop(higher_idx)
+            ex_i, ex_j = chosen_event[1], chosen_event[2]
+            # choose randomly which exciton to remove
+            victim = random.choice([ex_i, ex_j])
+            excitons.pop(victim)
+
             #print("annih") #for debug
-            # exciton with lower_idx still valid, possibly remains in S1
 
         # 2f) Record system state
         times.append(current_time/1e-9)
-        exciton_records.append([ex.site for ex in excitons])
+        # exciton_records.append([ex.site for ex in excitons]) #old version
+        exciton_records.append([(ex.uid, ex.site) for ex in excitons]) #new version with exciton id
+
 
         # If no excitons left => done
         if len(excitons) == 0:

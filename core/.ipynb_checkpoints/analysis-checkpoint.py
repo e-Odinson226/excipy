@@ -1,6 +1,44 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import h5py
 
+
+def dump_output(all_runs, filename="kmc.h5"):
+    import h5py, numpy as np
+    with h5py.File(filename, "w") as f:
+        f.attrs["n_traj"] = len(all_runs)
+        for tidx, (times, recs) in enumerate(all_runs):
+            g = f.create_group(f"traj{tidx}")
+            g.create_dataset("time", data=np.asarray(times, np.float64),
+                             compression="gzip", compression_opts=4)
+
+            # flatten exciton_records
+            flat = [";".join(f"{u},{s}" for u,s in step).encode()
+                    for step in recs]
+            g.create_dataset("rec", data=flat,
+                             dtype=h5py.string_dtype(), compression="gzip")
+
+    print(f"Wrote {len(all_runs)} trajectories to {filename}")
+
+
+def load_output(filename="kmc.h5"):
+    import h5py
+    runs = []
+    with h5py.File(filename, "r") as f:
+        for tidx in range(f.attrs["n_traj"]):     # original order
+            g   = f[f"traj{tidx}"]
+            t   = g["time"][:]
+            rec = []
+            for row in g["rec"][:]:
+                if len(row) == 0:
+                    rec.append([])
+                else:
+                    rec.append([(int(u), int(s)) for u,s in
+                                (pair.split(",") for pair in row.decode().split(";"))])
+            runs.append((t, rec))
+    return runs
+
+    
 
 def plot_average_exciton_population(results, num_bins=100,x0=0, xf=0.6):
     """
@@ -102,3 +140,93 @@ def plot_average_exciton_population(results, num_bins=100,x0=0, xf=0.6):
         plt.title('Total Exciton Population vs. Time')
         plt.legend()
         plt.show()
+
+
+def _build_traj_dict(times, records):
+    """
+    records[step] = [(uid, site), ...]
+    returns uid -> (np.array(t), np.array(site_idx))
+    """
+    traj = {}
+    for t, row in zip(times, records):
+        for uid, site in row:
+            if uid not in traj:
+                traj[uid] = ([], [])
+            traj[uid][0].append(t)
+            traj[uid][1].append(site)
+    # ── convert lists to numpy, **force integer dtype for site indices**
+    for uid in traj:
+        t_list, s_list = traj[uid]
+        traj[uid] = (np.asarray(t_list, dtype=float),
+                     np.asarray(s_list, dtype=int))      #  ← dtype=int
+    return traj
+
+
+def msd_single_run(times, records, coords, t_grid=None):
+    """
+    Parameters
+    ----------
+    times, records : output of one run_kmc()
+    coords         : (N_sites, 3) xyz array
+    t_grid         : 1-D array; if None we use 'times' as grid
+
+    Returns
+    -------
+    t_grid, msd    : same length, MSD already averaged over all
+                     excitons alive at each bin
+    """
+
+    coords = np.asarray(coords)
+    if t_grid is None:
+        t_grid = np.asarray(times)
+
+    traj = _build_traj_dict(times, records)
+    msd_accum  = np.zeros_like(t_grid, dtype=float)
+    counts     = np.zeros_like(t_grid, dtype=int)
+
+    for t_vec, site_vec in traj.values():
+        r0 = coords[site_vec[0]]
+        disp2 = ((coords[site_vec] - r0) ** 2).sum(axis=1)
+
+        # map each private time into global grid index
+        idx = np.searchsorted(t_grid, t_vec, side='right') - 1
+        idx[idx < 0] = 0
+
+        # accumulate
+        np.add.at(msd_accum,  idx, disp2)
+        np.add.at(counts,     idx, 1)
+
+    mask = counts > 0
+    msd = np.zeros_like(msd_accum)
+    msd[mask] = msd_accum[mask] / counts[mask]
+    return t_grid, msd
+
+
+def msd_all_runs(all_runs, coords, n_bins=500):
+    """
+    Parameters
+    ----------
+    all_runs : list[ (times, records) ]   # output of run_kmc_parallel
+    coords   : (N_sites, 3)
+    n_bins   : number of bins in common grid
+
+    Returns
+    -------
+    t_grid, msd_all   arrays of length n_bins
+    """
+    t_max = max(times[-1] for times, _ in all_runs)
+    t_grid = np.linspace(0.0, t_max, n_bins)
+
+    msd_accum = np.zeros(n_bins)
+    counts    = np.zeros(n_bins, dtype=int)
+
+    for times, recs in all_runs:
+        t_local, msd_local = msd_single_run(times, recs, coords, t_grid)
+        mask = msd_local > 0
+        msd_accum[mask] += msd_local[mask]
+        counts[mask]    += 1
+
+    msd_all = np.zeros_like(msd_accum)
+    ok = counts > 0
+    msd_all[ok] = msd_accum[ok] / counts[ok]
+    return t_grid, msd_all
