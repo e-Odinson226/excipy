@@ -1,0 +1,17 @@
+LICENSE
+README.md
+setup.py
+.ipynb_checkpoints/setup-checkpoint.py
+ExciPy.egg-info/PKG-INFO
+ExciPy.egg-info/SOURCES.txt
+ExciPy.egg-info/dependency_links.txt
+ExciPy.egg-info/requires.txt
+ExciPy.egg-info/top_level.txt
+examples/PR_clean.pdb
+examples/tests.ipynb
+examples/.ipynb_checkpoints/tests-checkpoint.ipynb
+excipy/__init__.py
+excipy/analysis.py
+excipy/kmc.py
+excipy/processes.py
+excipy/tools.py

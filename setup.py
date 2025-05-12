@@ -1,31 +1,36 @@
-from setuptools import setup, Extension
-import numpy
+from pathlib import Path
+import re
+from setuptools import setup
 
-include_dirs_numpy = [numpy.get_include()]
+ROOT = Path(__file__).parent
+PACKAGE = "excipy"                 # <- this is your only package folder
 
+# ------------------------------------------------------------------
+# extract __version__ from core/__init__.py
+# ------------------------------------------------------------------
+def get_version():
+    text = (ROOT / PACKAGE / "__init__.py").read_text(encoding="utf-8")
+    m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", text)
+    if m:
+        return m.group(1)
+    raise RuntimeError("Cannot find __version__ in core/__init__.py")
 
-def get_version_number():
-    main_ns = {}
-    for line in open('core/__init__.py', 'r').readlines():
-        if not(line.find('__version__')):
-            exec(line, main_ns)
-            return main_ns['__version__']
-
-
-
-
-setup(name='ExciPy',
-      version=get_version_number(),
-      description='ExciPy module for exciton dynamics by KMC method',
-      long_description=open('README.md').read(),
-      long_description_content_type='text/markdown',
-      author='Tolib Abdurakhmonov',
-      url='https://github.com/fizikximik',
-      author_email='abdurakhmonov.t.z@gmail.com',
-      packages=['core',
-                'core.analysis',
-                'core.processes',
-                'core.kmc',
-                'core.tools'],
-      install_requires=['numpy', 'ase', 'matplotlib'],
-      license='MIT License')
+setup(
+    name="ExciPy",                       # PyPI / pip name
+    version=get_version(),               # e.g. "0.1.0"
+    description="ExciPy – exciton KMC engine (single‑folder version)",
+    long_description=(ROOT / "README.md").read_text(encoding="utf-8"),
+    long_description_content_type="text/markdown",
+    author="Tolib Abdurakhmonov",
+    author_email="abdurakhmonov.t.z@gmail.com",
+    url="https://github.com/fizikximik",
+    license="MIT",
+    python_requires=">=3.8",
+    packages=[PACKAGE],                  # only 'core'
+    install_requires=[
+        "numpy",
+        "scipy",
+        "ase",
+        "matplotlib",
+    ],
+)

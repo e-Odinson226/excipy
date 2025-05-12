@@ -140,12 +140,12 @@ def get_Xmn(mol,i,j):
         uvec = vec_ij/dist_ij
     return dist_ij, uvec, vec_ij, mol_1
 
-def hopping_rate(i, j, H, mol, J=0.5):
+def hopping_rate(i, j, H, J=0.5):
+    # Forster transfer rate according to Fermi's Golden rule
     V = H[i,j]*27.211  # convert au to eV
     hbar = 6.58e-16 #eV*s
     pi = 3.14
     a0 = 0.529177
-    a = get_Xmn(mol, i, j)[0]*a0*1e10 # convert A to m
     k = 2*pi*(V**2)*J/hbar
     # print(k) #debugging
 

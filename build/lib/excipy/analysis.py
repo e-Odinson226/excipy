@@ -38,6 +38,45 @@ def load_output(filename="kmc.h5"):
             runs.append((t, rec))
     return runs
 
+def load_output_light(filename="kmc.h5"):
+    """
+    Return
+    -------
+    runs : list of (times_array, exciton_records)
+           times_array        : 1‑D float64
+           exciton_records    : list[ np.ndarray(shape=(n_pairs_t, 2), int32) ]
+                                each row = (uid, site)
+    Memory footprint is much smaller than a list‑of‑list‑of‑tuple structure,
+    yet downstream code can still iterate step‑by‑step:
+        for uid, site in exciton_records[step]:
+            ...
+    """
+    runs = []
+
+    with h5py.File(filename, "r") as f:
+        n_traj = f.attrs["n_traj"]
+
+        for tidx in range(n_traj):
+            g      = f[f"traj{tidx}"]
+            times  = g["time"][:]                  # float64 (tiny)
+
+            step_arrays = []                       # will hold int32 arrays
+            for row in g["rec"]:                  # iterate HDF5 vlen strings
+                if len(row) == 0:                  # no excitons this step
+                    step_arrays.append(np.empty((0, 2), dtype=np.int32))
+                else:
+                    # split once, then vectorise
+                    pairs = np.frombuffer(row, dtype=np.uint8) \
+                                .tobytes().decode().split(";")
+                    ints  = np.fromiter(
+                                (int(x) for p in pairs for x in p.split(",")),
+                                dtype=np.int32, count=len(pairs)*2
+                            )
+                    step_arrays.append(ints.reshape(-1, 2))
+
+            runs.append((times, step_arrays))
+
+    return runs
     
 
 def plot_average_exciton_population(results, num_bins=100,x0=0, xf=0.6):

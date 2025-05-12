@@ -2,9 +2,8 @@ import numpy as np
 import random
 import concurrent.futures
 from functools import partial
-from core.processes import hopping_rate
+from excipy.processes import hopping_rate
 import sys
-from numba import jit
 
 
 
