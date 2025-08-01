@@ -4,26 +4,22 @@ import h5py
 from  scipy.stats import linregress,gaussian_kde
 import collections
 
+# coords array should already be defined to use any of these functions
 
-
-# coords array you already build
-#coords = np.array([mol.get_center_of_mass() for mol in mol])
-# -------------------------------------------------------------
-
-# ---- helper --------------------------------------------------
+# helper to build dictionary from trajectories 
 def _build_traj_dict(times, records):
     """
-    records[step] = [(uid, site, imx, imy, imz), ...]   ### PBC MOD
+    records[step] = [(uid, site, imx, imy, imz), ...]   
     returns uid -> (np.array(t), np.array(site_idx), np.array(img, shape=(N,3)))
     """
     traj = {}
     for t, row in zip(times, records):
-        for uid, site, ix, iy, iz in row:               ### PBC MOD
+        for uid, site, ix, iy, iz in row:    # PBC MOD
             if uid not in traj:
                 traj[uid] = ([], [], [])
             traj[uid][0].append(t)
             traj[uid][1].append(site)
-            traj[uid][2].append((ix, iy, iz))           ### PBC ADD
+            traj[uid][2].append((ix, iy, iz))  # PBC ADD
     # convert to numpy
     for uid in traj:
         t_list, s_list, img_list = traj[uid]
@@ -34,10 +30,19 @@ def _build_traj_dict(times, records):
 
 
 # ---- single‑run MSD -----------------------------------------
-def msd_single_run(times, records, coords, t_grid=None, box=None):  ### PBC ADD box
+def msd_single_run(all_runs, 
+                   index, 
+                   coords, 
+                   t_grid=None, 
+                   box=None, 
+                   plot=False): 
     """
-    box : (Lx, Ly, Lz) or None - if given, unwrap positions
+    the function generates MSD plot for single trajectory.
+    box : if given, unwrap positions
     """
+
+    times, records = all_runs[index]
+    
     coords = np.asarray(coords)
     if t_grid is None:
         t_grid = np.asarray(times)
@@ -46,15 +51,15 @@ def msd_single_run(times, records, coords, t_grid=None, box=None):  ### PBC ADD 
     msd_accum = np.zeros_like(t_grid, dtype=float)
     counts    = np.zeros_like(t_grid, dtype=int)
 
-    for t_vec, site_vec, img_vec in traj.values():       ### PBC MOD
-        # reference position (unwrapped)
+    for t_vec, site_vec, img_vec in traj.values():       # PBC MOD
+        # reference position, unwrapped
         if box is None:
             r0 = coords[site_vec[0]]
             r  = coords[site_vec]
-        else:                               ### PBC ADD >>>
-            shift = img_vec * np.asarray(box)            # shape (N,3)
+        else:                               # PBC ADD start
+            shift = img_vec * np.asarray(box)         # shape (N,3)
             r0 = coords[site_vec[0]] + shift[0]
-            r  = coords[site_vec] + shift           ### PBC ADD <<<
+            r  = coords[site_vec] + shift       # PBC ADD end
 
         disp2 = ((r - r0) ** 2).sum(axis=1)
 
@@ -66,19 +71,34 @@ def msd_single_run(times, records, coords, t_grid=None, box=None):  ### PBC ADD 
     mask = counts > 0
     msd = np.zeros_like(msd_accum)
     msd[mask] = msd_accum[mask] / counts[mask]
-    return t_grid, msd
 
+    if plot is False:
+        return t_grid, msd/100 # returns in ns and nm
+    elif plot is True:
+        plt.figure(figsize=(5,4))
+        plt.rcParams.update({"font.size": 14})
+        plt.plot(t_grid, msd, '-', color="b", linewidth=2)
+        plt.xlabel("Time [ns]")
+        plt.ylabel("MSD [$nm^2$]")
+        plt.savefig(f"MSD_single_ind_{int(index)}.png", dpi=300, bbox_inches="tight")
+        plt.show()
+        
 
 #  average over runs 
-def msd_all_runs(all_runs, coords, n_bins=500, box=None):          ### PBC ADD box
+def msd_all_runs(all_runs, 
+                 coords, 
+                 n_bins=500, 
+                 box=None, 
+                 plot=False):  
+    
     t_max = max(times[-1] for times, _ in all_runs)
     t_grid = np.linspace(0.0, t_max, n_bins)
 
     msd_accum = np.zeros(n_bins)
     counts    = np.zeros(n_bins, dtype=int)
 
-    for times, recs in all_runs:
-        _, msd_local = msd_single_run(times, recs, coords, t_grid, box=box)  ### PBC MOD
+    for ind_run in range(0, len(all_runs)):
+        _, msd_local = msd_single_run(all_runs, ind_run, coords, t_grid, box=box, plot=False)  
         mask = msd_local > 0
         msd_accum[mask] += msd_local[mask]
         counts[mask]    += 1
@@ -86,8 +106,17 @@ def msd_all_runs(all_runs, coords, n_bins=500, box=None):          ### PBC ADD b
     msd_all = np.zeros_like(msd_accum)
     ok = counts > 0
     msd_all[ok] = msd_accum[ok] / counts[ok]
-    return t_grid, msd_all
 
+    if plot is False:
+        return t_grid, msd_all
+    elif plot is True:
+        plt.figure(figsize=(5,4))
+        plt.rcParams.update({"font.size": 14})
+        plt.plot(t_grid, msd_all, '-', color="b", linewidth=2)
+        plt.xlabel("Time [ns]")
+        plt.ylabel("MSD [$nm^2$]")
+        plt.savefig(f"MSD_avg.png", dpi=300, bbox_inches="tight")
+        plt.show()
 
 
 
@@ -95,7 +124,7 @@ def plot_msd_with_fit(t, msd,
                       t_min=None, t_max=None,
                       title=None,
                       ax=None,
-                      scale=100):
+                      scale=1):
     """
     MSD plott with linear fitting 
    
@@ -107,7 +136,7 @@ def plot_msd_with_fit(t, msd,
 
     ax.plot(t, msd/scale, label="MSD")
 
-    # ------- choose fit window ---------------------------------
+    # fitting range [t0 - tf]
     if t_min is None:   t_min = float(t.min())
     if t_max is None:   t_max = float(t.max())
 
@@ -115,7 +144,7 @@ def plot_msd_with_fit(t, msd,
     if mask.sum() < 2:
         raise ValueError("Fit window has < 2 points")
 
-    # ------- linear regression ---------------------------------
+    # linear regression 
     slope, intercept, r, p, stderr = linregress(t[mask], msd[mask])
     D = slope / 6.0            # 3‑D:  MSD = 6 D t
 
@@ -124,14 +153,14 @@ def plot_msd_with_fit(t, msd,
     msd_fit = slope * t_fit + intercept
     ax.plot(t_fit, msd_fit/scale, 'r--', lw=2, label="linear fit")
 
-    # ------- annotation ----------------------------------------
-    txt = (f"Slope = {slope*1e-2:.0f} ± {stderr*1e-2:.0f}\n"
-           f"   D = {D*1e-5:.1f}  [$ nm^2/ps$]")
+    # adding slope and diffusion values to the plot
+    txt = (f"Slope = {slope:.0f} ± {stderr:.0f}\n"
+           f"   D = {D/1e3:.1f}  [$ nm^2/ps$]")
     ax.text(0.98, 0.02, txt, transform=ax.transAxes,
             ha="right", va="bottom",
             bbox=dict(boxstyle="round", alpha=0.25))
 
-    # ------- cosmetics -----------------------------------------
+    # cosmetics 
     ax.set_xlabel("time  [ns]")
     ax.set_ylabel(f"MSD [$nm^2$]")
     if title:
@@ -143,12 +172,67 @@ def plot_msd_with_fit(t, msd,
 
 
 
-# ────────────────────────────────────────────────────────────────
+def plot_msd_1d(t, msd,
+                      t_min=None, t_max=None,
+                      title=None,
+                      ax=None,
+                      scale=100):
+    """
+    My function****
+    MSD plott with linear fitting 
+   scale=100 can be used to convert from A^2 to nm^2 in y_axis only,
+   it doesn't effect diffusion constant
+   this function only takes [t]=ns, [msd]=A^2
+    """
+
+    if ax is None:
+        plt.rcParams.update({"font.size": 15})
+        fig, ax = plt.subplots(figsize=(6,4.5))
+
+    ax.plot(t, msd/scale, label="MSD")
+
+    # fitting range [t0 - tf]
+    if t_min is None:   t_min = float(t.min())
+    if t_max is None:   t_max = float(t.max())
+
+    mask = (t >= t_min) & (t <= t_max)
+    if mask.sum() < 2:
+        raise ValueError("Fit window has < 2 points")
+
+    # linear regression 
+    slope, intercept, r, p, stderr = linregress(t[mask], msd[mask])
+    D = slope / 2.0            # 3‑D:  MSD = 6 D t
+
+    # fitted line
+    t_fit  = np.array([t_min, t_max])
+    msd_fit = slope * t_fit + intercept
+    ax.plot(t_fit, msd_fit/scale, 'r--', lw=2, label="linear fit")
+
+    # adding slope and diffusion values to the plot
+    txt = (f"Slope = {slope/scale:.0f} ± {stderr/scale:.0f}\n"
+           f"   D = {D/1e5:.1f}  [$ nm^2/ps$]")
+    ax.text(0.98, 0.02, txt, transform=ax.transAxes,
+            ha="right", va="bottom",
+            bbox=dict(boxstyle="round", alpha=0.25))
+
+    # cosmetics 
+    ax.set_xlabel("time  [ns]")
+    ax.set_ylabel(f"MSD [$nm^2$]")
+    if title:
+        ax.set_title(title)
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+    return slope, stderr, D
+
+
+
+
+# write output into h5 file, efficient, memory friendly option
 def dump_output(all_runs, filename="kmc.h5"):
     """
-    Stores each trajectory under /traj<i>/time  and  /traj<i>/rec.
-    Each step row is encoded as
-        "uid,site,imx,imy,imz;uid,site,imx,imy,imz;..."
+    Stores each trajectory under /traj[i]/time  and  /traj[i]/rec.
+    Each step row is encoded as "uid,site,imx,imy,imz;"
     """
     with h5py.File(filename, "w") as f:
         f.attrs["n_traj"] = len(all_runs)
@@ -167,38 +251,8 @@ def dump_output(all_runs, filename="kmc.h5"):
 
     print(f"Wrote {len(all_runs)} trajectories to {filename}")
 
-# ────────────────────────────────────────────────────────────────
-def load_output(filename="kmc.h5"):
-    """Returns list of (times, records) with 5‑tuple records."""
-    runs = []
-    with h5py.File(filename, "r") as f:
-        n_traj = f.attrs["n_traj"]
-        for tidx in range(n_traj):
-            g  = f[f"traj{tidx}"]
-            t  = g["time"][:]
-
-            rec = []
-            for row in g["rec"][:]:
-                if len(row) == 0:
-                    rec.append([])
-                else:
-                    tuples = []
-                    for pair in row.decode().split(";"):
-                        parts = list(map(int, pair.split(",")))
-                        if len(parts) == 2:
-                            uid, site = parts
-                            tuples.append((uid, site, 0, 0, 0))  # legacy file
-                        else:
-                            uid, site, ix, iy, iz = parts
-                            tuples.append((uid, site, ix, iy, iz))
-                    rec.append(tuples)
-            runs.append((t, rec))
-    return runs
-
-
-
-
-def load_output_light(filename="kmc.h5"):
+# reading written uotput 
+def load_output_light(filename="kmc.h5"): # light version, works with float32
     """
     Loads both legacy records (uid, site) and new PBC records
     (uid, site, ix, iy, iz).  Always returns 5‑column int32 arrays.
@@ -218,7 +272,7 @@ def load_output_light(filename="kmc.h5"):
                     step_arrays.append(np.empty((0, 5), dtype=np.int32))
                     continue
 
-                # row is already bytes → decode once
+                # row is already bytes, -> decode once
                 tokens = row.decode().split(";")
                 n_cols = len(tokens[0].split(","))       # 2 or 5
 
@@ -227,7 +281,7 @@ def load_output_light(filename="kmc.h5"):
                           dtype=np.int32, count=len(tokens)*n_cols
                        ).reshape(-1, n_cols)
 
-                if n_cols == 2:                           # pad legacy file
+                if n_cols == 2:    #  legacy file
                     pad  = np.zeros((ints.shape[0], 3), dtype=np.int32)
                     ints = np.hstack((ints, pad))
 
@@ -235,7 +289,8 @@ def load_output_light(filename="kmc.h5"):
 
             runs.append((times, step_arrays))
 
-    return runs
+    return runs  # it will return exactly the same variable that program initially calculated
+
 
 
 
@@ -493,3 +548,4 @@ def find_large_hops(times, records, coords, box, cutoff=20.0, max_print=20):
 
     print(f"\nTotal hops > {cutoff} Å : {len(bad_steps)}")
     return bad_steps
+

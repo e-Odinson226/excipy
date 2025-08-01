@@ -9,7 +9,6 @@ def plot_exciton_density(times, exciton_records, num_sites):
     """
     Plot exciton occupancy vs. time.
 
-    Parameters
     ----------
     times : list of float
         The KMC times after each event (length T).
@@ -83,9 +82,9 @@ def unit_vector(vector):
 # Calculation of rotation matrix that aligns vec1 to vec2
 def rotation_matrix_from_vectors(vec1, vec2):
     """ Find the rotation matrix that aligns vec1 to vec2
-    :param vec1: A 3d "source" vector # this should be DIPOLE VECTOR
-    :param vec2: A 3d "destination" vector # long axis of the molecule
-    :return: A transform matrix (3x3) which when applied to vec1, aligns it with vec2.
+    param vec1: A 3d "source" vector # this should be DIPOLE VECTOR
+    param vec2: A 3d "destination" vector # long axis of the molecule
+    return: A transform matrix (3x3) which when applied to vec1, aligns it with vec2.
     """
     a, b = unit_vector(vec1), unit_vector(vec2)
     v = np.cross(a, b)
@@ -215,7 +214,7 @@ def rotate_vector_deg(vector, axis, angle_deg):
     Rotate a 3D 'vector' around a 3D 'axis' by an angle 'angle_deg' (in degrees).
     Returns the rotated vector as a NumPy array.
 
-    Uses Rodrigues' rotation formula in 3D:
+    Uses formula in 3D:
        v_rot = v*cos(theta) + (k x v)*sin(theta) + k*(k·v)*(1 - cos(theta))
     where:
        - v is the original vector
@@ -299,6 +298,22 @@ def separate_molecules_PBI(atoms, SUPERCELL=[1,1,1]):
     print(" - System contains {} molecules.\n".format(len(mol)))
     return mol
 
+def separate_molecules_PBI_FULL(atoms, SUPERCELL=[1,1,1]):
+
+    print("We are using pre-defined specific function for PBI unitcell with 8 molecules!\n")
+    print("For your system, please make changes accordingly.\n")
+    single = separate(atoms, scale=1.4)
+    single_cell = single[0]+single[1]+single[2]+single[3]+single[4]+single[5]+single[6]+single[7]
+    supcell = single_cell.repeat(SUPERCELL)
+    Nmol = len(single[0])
+    print(" - Molecule has {} atoms".format(Nmol))
+    mol = []
+    for i in range(0,int(len(supcell)/Nmol)):
+        single_mol = supcell[i*Nmol:(i+1)*Nmol]
+        mol.append(single_mol)
+
+    print(" - System contains {} molecules.\n".format(len(mol)))
+    return mol
 
 
 
